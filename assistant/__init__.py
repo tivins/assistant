@@ -8,12 +8,14 @@ from .ai_client import AIClient
 from .archive_manager import ArchiveManager
 from .command_processor import CommandProcessor
 from .conversation_manager import ConversationManager
-from .script_executor import ScriptExecutor
+from .command_executor import CommandExecutor
+from .approval_analyzer import ApprovalAnalyzer
 
 __all__ = [
     'AIClient',
     'ArchiveManager', 
     'CommandProcessor',
     'ConversationManager',
-    'ScriptExecutor'
+    'CommandExecutor',
+    'ApprovalAnalyzer'
 ]

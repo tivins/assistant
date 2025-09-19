@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """
 Terminal AI Assistant
-A command-line AI assistant that integrates with Ollama and can execute scripts.
+A command-line AI assistant that integrates with Ollama and can execute system commands.
 """
 
 import sys
 import argparse
-from assistant import AIClient, ArchiveManager, CommandProcessor, ConversationManager, ScriptExecutor
+from assistant import AIClient, ArchiveManager, CommandProcessor, ConversationManager, CommandExecutor
 
 
 class TerminalAIAssistant:
-    def __init__(self, model: str = "llama3.2:3B", scripts_dir: str = "./scripts", archive_dir: str = "./conversations"):
+    def __init__(self, model: str = "llama3.2:3B", archive_dir: str = "./conversations"):
         # Initialize components
         self.ai_client = AIClient(model)
-        self.script_executor = ScriptExecutor(scripts_dir)
+        self.command_executor = CommandExecutor()
         self.archive_manager = ArchiveManager(archive_dir)
         self.conversation_manager = ConversationManager()
         self.command_processor = CommandProcessor(
             self.ai_client, 
-            self.script_executor, 
+            self.command_executor, 
             self.archive_manager
         )
     
@@ -48,12 +48,16 @@ class TerminalAIAssistant:
                 "role": "system",
                 "content": """You are a helpful terminal AI assistant. You can:
 - Answer questions and provide assistance
-- Execute scripts from the ./scripts folder
+- Execute system commands safely
 - Help with coding, debugging, and system administration
 - Provide explanations and guidance
 
-When you want to execute a script, use the format: [EXECUTE_SCRIPT:filename.py] in your response.
-The user will see this and can choose to run it."""
+When you want to execute a system command, you MUST use the EXACT format: [EXECUTE:command] in your response.
+IMPORTANT: Always include the square brackets [ ] around EXECUTE:command
+Example: [EXECUTE:ls -la] or [EXECUTE:cd /home/user]
+The user will see this and can choose to run it.
+
+Available commands include: cd, ls, cat, echo, pwd, mkdir, touch, cp, mv, rm, grep, find, python, git, etc."""
             }
         ]
         
@@ -65,13 +69,19 @@ The user will see this and can choose to run it."""
         self.add_to_history("assistant", ai_response)
         return ai_response
     
-    def list_scripts(self):
-        """List available scripts in the scripts directory."""
-        return self.script_executor.list_scripts()
+    def list_commands(self):
+        """List available system commands."""
+        return self.command_executor.get_allowed_commands()
     
-    def execute_script(self, script_name: str) -> str:
-        """Execute a script from the scripts directory."""
-        return self.script_executor.execute_script(script_name)
+    def execute_command(self, command: str) -> str:
+        """Execute a system command."""
+        return_code, stdout, stderr = self.command_executor.execute_command(command)
+        result = f"Executed: {command}\nExit code: {return_code}\n"
+        if stdout:
+            result += f"Output:\n{stdout}\n"
+        if stderr:
+            result += f"Error:\n{stderr}\n"
+        return result
     
     def save_conversation(self, filename: str = None):
         """Save conversation history to a JSON file."""
@@ -124,16 +134,32 @@ The user will see this and can choose to run it."""
                     print(command_result)
                     continue
                 
+                # Check if this is an approval response for pending commands
+                if self.command_processor.pending_commands:
+                    if self.command_processor.approval_analyzer.analyze_approval_response(user_input):
+                        print("\n✅ Executing approved commands:")
+                        result = self.command_processor._execute_pending_commands()
+                        print(result)
+                        continue
+                    else:
+                        self.command_processor.pending_commands = []
+                        print("❌ Command execution cancelled.")
+                        continue
+                
                 # Get AI response
                 print("\n🤖 AI Assistant:")
                 response = self.get_ai_response(user_input)
                 print(response)
                 
-                # Check for script execution suggestions
-                if "[EXECUTE_SCRIPT:" in response:
-                    print("\n" + "="*50)
-                    print("The AI suggested executing a script. Use '/execute <script_name>' to run it.")
-                    print("="*50)
+                # Check for command execution suggestions
+                if "[EXECUTE:" in response:
+                    # Extract and store commands for approval
+                    execute_commands = self.command_processor._extract_execute_commands(response)
+                    if execute_commands:
+                        self.command_processor.pending_commands = execute_commands
+                        print("\n" + "="*50)
+                        print("The AI suggested executing commands. Type 'yes'/'oui' to approve or use /approve.")
+                        print("="*50)
                 
         except KeyboardInterrupt:
             print("\n\nGoodbye! 👋")
@@ -167,7 +193,6 @@ def check_virtual_environment():
 def main():
     parser = argparse.ArgumentParser(description="Terminal AI Assistant")
     parser.add_argument("--model", "-m", default="llama3.2", help="Ollama model to use")
-    parser.add_argument("--scripts-dir", "-s", default="./scripts", help="Scripts directory")
     parser.add_argument("--archive-dir", "-a", default="./conversations", help="Archive directory")
     parser.add_argument("--skip-venv-check", action="store_true", help="Skip virtual environment check")
     
@@ -177,7 +202,7 @@ def main():
     if not args.skip_venv_check:
         check_virtual_environment()
     
-    assistant = TerminalAIAssistant(model=args.model, scripts_dir=args.scripts_dir, archive_dir=args.archive_dir)
+    assistant = TerminalAIAssistant(model=args.model, archive_dir=args.archive_dir)
     assistant.run()
 
 if __name__ == "__main__":
